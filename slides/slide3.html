@@ -1,0 +1,384 @@
+<style>
+    .slide3-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    #clipBgCanvas3 {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        z-index: 1;
+        opacity: 0.35;
+    }
+
+    .slide3-container .slide-layout {
+        position: relative;
+        z-index: 10;
+        padding: 2rem 4rem;
+        gap: 3rem;
+        align-items: center;
+    }
+
+    .slide3-container h1 {
+        font-size: 2.2rem;
+        line-height: 1.2;
+        margin-bottom: 0.8rem;
+    }
+
+    .slide3-container p {
+        font-size: 1.05rem;
+        line-height: 1.5;
+        margin-bottom: 0.8rem;
+    }
+
+    .loss-step {
+        background: rgba(30, 41, 59, 0.5);
+        padding: 0.8rem 1.2rem;
+        border-radius: 8px;
+        border-left: 3px solid #64748b;
+        margin-bottom: 0.7rem;
+        opacity: 0;
+        transform: translateX(-25px);
+        transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .loss-step.visible {
+        opacity: 1;
+        transform: translateX(0);
+    }
+
+    .loss-step p { margin: 0; }
+    .loss-step .MathJax { font-size: 1.05em !important; margin: 0.2rem 0; }
+
+    .loss-step .step-label {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-bottom: 0.2rem;
+    }
+
+    .infonce-box {
+        background: rgba(15, 23, 42, 0.8);
+        border: 2px solid var(--accent-amber);
+        border-radius: 12px;
+        padding: 1rem;
+        margin-top: 0.8rem;
+        text-align: center;
+        box-shadow: 0 8px 25px rgba(245, 158, 11, 0.1);
+        opacity: 0;
+        transform: scale(0.9);
+        transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .infonce-box.visible {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    .infonce-box .MathJax { font-size: 1.2em !important; }
+
+    .slide3-container #clipVisCanvas3 {
+        width: 500px !important;
+        height: 500px !important;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.7);
+        background: #0f172a;
+        border-radius: 12px;
+        border: 1px solid #1e293b;
+    }
+</style>
+
+<div class="slide3-container">
+    <canvas id="clipBgCanvas3"></canvas>
+
+    <div class="slide-layout">
+        <div class="text-column">
+            <h1>The Contrastive<br>Loss (InfoNCE)</h1>
+
+            <p>CLIP's training objective maximizes similarity for <span class="highlight">correct pairs</span> while minimizing it for <span class="highlight">incorrect pairs</span> within each batch.</p>
+
+            <div class="loss-step" id="lossStep1">
+                <p class="step-label">1. Cosine Similarity</p>
+                <p>$$\text{sim}(\mathbf{I}_i, \mathbf{T}_j) = \mathbf{I}_i^{\top} \mathbf{T}_j$$</p>
+                <p style="font-size: 0.9rem;">Since both are L2-normalized, this equals cosine similarity.</p>
+            </div>
+
+            <div class="loss-step" id="lossStep2">
+                <p class="step-label">2. Temperature-Scaled Logits</p>
+                <p>$$\ell_{ij} = \frac{\mathbf{I}_i^{\top} \mathbf{T}_j}{\tau}$$</p>
+                <p style="font-size: 0.9rem;">The learnable temperature $\tau$ sharpens or softens the distribution.</p>
+            </div>
+
+            <div class="loss-step" id="lossStep3">
+                <p class="step-label">3. Softmax over Negatives</p>
+                <p style="font-size: 0.9rem;">For each image $i$, treat the correct text as positive and all other $N-1$ texts as negatives.</p>
+            </div>
+
+            <div class="infonce-box" id="infoNCEBox">
+                <p style="font-size: 0.85rem; color: var(--text-main); font-weight: 800; letter-spacing: 1px; margin-bottom: 0.3rem;">IMAGE-TO-TEXT LOSS (InfoNCE)</p>
+                <p>$$\mathcal{L}_i^{I \to T} = -\log \frac{\exp(\mathbf{I}_i^{\top}\mathbf{T}_i / \tau)}{\displaystyle\sum_{k=1}^{N} \exp(\mathbf{I}_i^{\top}\mathbf{T}_k / \tau)}$$</p>
+            </div>
+        </div>
+
+        <div class="visual-column">
+            <canvas id="clipVisCanvas3" width="500" height="500"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    // --- Background Particles ---
+    const bgCanvas = document.getElementById('clipBgCanvas3');
+    const bgCtx = bgCanvas.getContext('2d');
+    let bw, bh;
+    let particles = [];
+    const particleCount = 60;
+
+    function resizeBgCanvas() {
+        const container = bgCanvas.parentElement;
+        bw = bgCanvas.width = container.offsetWidth;
+        bh = bgCanvas.height = container.offsetHeight;
+    }
+
+    class FloatingParticle {
+        constructor() {
+            this.x = Math.random() * bw;
+            this.y = Math.random() * bh;
+            this.vx = (Math.random() - 0.5) * 1.5;
+            this.vy = (Math.random() - 0.5) * 1.5;
+            this.radius = 1 + Math.random() * 2;
+            this.color = Math.random() > 0.5 ? '#06b6d4' : '#f59e0b';
+            this.opacity = 0.1 + Math.random() * 0.4;
+        }
+        update() {
+            this.x += this.vx; this.y += this.vy;
+            if (this.x < 0 || this.x > bw) this.vx *= -1;
+            if (this.y < 0 || this.y > bh) this.vy *= -1;
+            bgCtx.beginPath(); bgCtx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            bgCtx.fillStyle = `rgba(${parseInt(this.color.slice(1,3), 16)}, ${parseInt(this.color.slice(3,5), 16)}, ${parseInt(this.color.slice(5,7), 16)}, ${this.opacity})`;
+            bgCtx.fill();
+        }
+    }
+
+    function initBg() {
+        resizeBgCanvas();
+        particles = [];
+        for (let i = 0; i < particleCount; i++) particles.push(new FloatingParticle());
+    }
+    initBg();
+    window.addEventListener('resize', initBg);
+
+    // --- Staggered reveal ---
+    const els = [
+        document.getElementById('lossStep1'),
+        document.getElementById('lossStep2'),
+        document.getElementById('lossStep3'),
+        document.getElementById('infoNCEBox')
+    ];
+    els.forEach((el, i) => {
+        setTimeout(() => { if (el) el.classList.add('visible'); }, 400 + i * 550);
+    });
+
+    // --- Main Visual: Animated Similarity Computation ---
+    const canvas = document.getElementById('clipVisCanvas3');
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    let time = 0;
+
+    const N = 5;
+    // Precompute similarity values (simulating a batch)
+    const simMatrix = [];
+    for (let i = 0; i < N; i++) {
+        simMatrix[i] = [];
+        for (let j = 0; j < N; j++) {
+            if (i === j) simMatrix[i][j] = 0.85 + Math.random() * 0.12;
+            else simMatrix[i][j] = -0.1 + Math.random() * 0.3;
+        }
+    }
+
+    const cellSize = 60;
+    const gridStartX = (w - N * cellSize) / 2;
+    const gridStartY = 100;
+
+    const imageEmojis = ['🐕', '🌅', '✈️', '🎸', '🏔️'];
+    const textSnippets = ['dog', 'sunset', 'plane', 'guitar', 'mountain'];
+
+    function drawRoundedRect(x, y, rw, rh, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + rw - r, y);
+        ctx.quadraticCurveTo(x + rw, y, x + rw, y + r);
+        ctx.lineTo(x + rw, y + rh - r);
+        ctx.quadraticCurveTo(x + rw, y + rh, x + rw - r, y + rh);
+        ctx.lineTo(x + r, y + rh);
+        ctx.quadraticCurveTo(x, y + rh, x, y + rh - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+    }
+
+    // Highlighted row cycles through
+    let highlightedRow = 0;
+    let rowTimer = 0;
+
+    function animate() {
+        bgCtx.clearRect(0, 0, bw, bh);
+        ctx.clearRect(0, 0, w, h);
+        particles.forEach(p => p.update());
+
+        time += 0.012;
+        rowTimer += 0.012;
+        if (rowTimer > 2.5) {
+            rowTimer = 0;
+            highlightedRow = (highlightedRow + 1) % N;
+        }
+
+        // Title
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = "bold 15px 'Montserrat'";
+        ctx.textAlign = 'center';
+        ctx.fillText('Similarity Matrix: Iᵢᵀ Tⱼ / τ', w / 2, 30);
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = "13px 'Inter'";
+        ctx.fillText('Diagonal = matched pairs (maximize)', w / 2, 50);
+        ctx.textAlign = 'left';
+
+        // Column headers (Text)
+        ctx.font = "bold 11px 'Montserrat'";
+        ctx.fillStyle = '#f59e0b';
+        ctx.textAlign = 'center';
+        for (let j = 0; j < N; j++) {
+            ctx.fillText(textSnippets[j], gridStartX + j * cellSize + cellSize / 2, gridStartY - 15);
+        }
+
+        // Row headers (Images)
+        for (let i = 0; i < N; i++) {
+            ctx.font = '20px sans-serif';
+            ctx.fillText(imageEmojis[i], gridStartX - 25, gridStartY + i * cellSize + cellSize / 2 + 7);
+        }
+
+        // Label axes
+        ctx.font = "bold 10px 'Montserrat'";
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillText('Texts (T)', w / 2, gridStartY - 30);
+        ctx.save();
+        ctx.translate(gridStartX - 50, gridStartY + N * cellSize / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillStyle = '#06b6d4';
+        ctx.fillText('Images (I)', 0, 0);
+        ctx.restore();
+        ctx.textAlign = 'left';
+
+        // Draw grid cells
+        for (let i = 0; i < N; i++) {
+            for (let j = 0; j < N; j++) {
+                const x = gridStartX + j * cellSize;
+                const y = gridStartY + i * cellSize;
+                const sim = simMatrix[i][j];
+                const isDiag = i === j;
+                const isHighlightRow = i === highlightedRow;
+
+                // Cell background
+                if (isDiag) {
+                    const pulse = 0.3 + 0.15 * Math.sin(time * 3 + i);
+                    ctx.fillStyle = `rgba(16, 185, 129, ${pulse})`;
+                } else if (isHighlightRow) {
+                    ctx.fillStyle = 'rgba(244, 63, 94, 0.08)';
+                } else {
+                    ctx.fillStyle = 'rgba(30, 41, 59, 0.4)';
+                }
+
+                drawRoundedRect(x + 2, y + 2, cellSize - 4, cellSize - 4, 6);
+                ctx.fill();
+
+                // Cell border
+                if (isDiag) {
+                    ctx.strokeStyle = '#10b981';
+                    ctx.lineWidth = 2;
+                } else if (isHighlightRow) {
+                    ctx.strokeStyle = 'rgba(244, 63, 94, 0.3)';
+                    ctx.lineWidth = 1;
+                } else {
+                    ctx.strokeStyle = '#1e293b';
+                    ctx.lineWidth = 1;
+                }
+                ctx.stroke();
+
+                // Cell value
+                ctx.textAlign = 'center';
+                ctx.font = isDiag ? "bold 13px 'Montserrat'" : "12px 'Inter'";
+                ctx.fillStyle = isDiag ? '#10b981' : (isHighlightRow ? '#f43f5e' : '#94a3b8');
+                ctx.fillText(sim.toFixed(2), x + cellSize / 2, y + cellSize / 2 + 5);
+            }
+        }
+
+        // Softmax visualization for highlighted row
+        const softmaxY = gridStartY + N * cellSize + 30;
+
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = "bold 12px 'Montserrat'";
+        ctx.textAlign = 'center';
+        ctx.fillText(`Softmax for Image ${highlightedRow + 1} (row ${highlightedRow + 1}):`, w / 2, softmaxY);
+
+        // Compute softmax for this row
+        const row = simMatrix[highlightedRow];
+        const tau = 0.07;
+        const expVals = row.map(s => Math.exp(s / tau));
+        const sumExp = expVals.reduce((a, b) => a + b, 0);
+        const probs = expVals.map(e => e / sumExp);
+
+        // Draw probability bars
+        const barStartX = gridStartX;
+        const barY = softmaxY + 15;
+        const barMaxH = 60;
+        const barWidth = cellSize - 8;
+
+        for (let j = 0; j < N; j++) {
+            const bx = barStartX + j * cellSize + 4;
+            const bh_val = probs[j] * barMaxH;
+            const isDiag = j === highlightedRow;
+
+            const barColor = isDiag ? '#10b981' : 'rgba(244, 63, 94, 0.4)';
+
+            // Bar background
+            ctx.fillStyle = 'rgba(30, 41, 59, 0.3)';
+            drawRoundedRect(bx, barY, barWidth, barMaxH, 4);
+            ctx.fill();
+
+            // Bar fill (from bottom)
+            ctx.fillStyle = barColor;
+            drawRoundedRect(bx, barY + barMaxH - bh_val, barWidth, bh_val, 4);
+            ctx.fill();
+
+            // Probability label
+            ctx.font = "bold 10px 'Inter'";
+            ctx.fillStyle = isDiag ? '#10b981' : '#f43f5e';
+            ctx.textAlign = 'center';
+            ctx.fillText((probs[j] * 100).toFixed(1) + '%', bx + barWidth / 2, barY + barMaxH + 14);
+
+            // Column label
+            ctx.font = "9px 'Inter'";
+            ctx.fillStyle = '#64748b';
+            ctx.fillText('T' + (j + 1), bx + barWidth / 2, barY + barMaxH + 26);
+        }
+
+        // Arrow pointing to correct answer
+        ctx.fillStyle = '#10b981';
+        ctx.font = "bold 11px 'Montserrat'";
+        ctx.textAlign = 'center';
+        const correctX = barStartX + highlightedRow * cellSize + 4 + barWidth / 2;
+        ctx.fillText('✓ correct', correctX, barY - 5);
+
+        ctx.textAlign = 'left';
+
+        requestAnimationFrame(animate);
+    }
+
+    animate();
+})();
+</script>

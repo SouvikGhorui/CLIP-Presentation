@@ -1,0 +1,403 @@
+<style>
+    .slide5-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    #clipBgCanvas5 {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        z-index: 1;
+        opacity: 0.35;
+    }
+
+    .slide5-container .slide-layout {
+        position: relative;
+        z-index: 10;
+        padding: 2rem 4rem;
+        gap: 3rem;
+    }
+
+    .slide5-container h1 {
+        font-size: 2.2rem;
+        line-height: 1.2;
+        margin-bottom: 0.8rem;
+    }
+
+    .slide5-container p {
+        font-size: 1.05rem;
+        line-height: 1.5;
+        margin-bottom: 0.8rem;
+    }
+
+    .zs-step {
+        background: rgba(30, 41, 59, 0.5);
+        padding: 0.8rem 1.2rem;
+        border-radius: 8px;
+        border-left: 3px solid #64748b;
+        margin-bottom: 0.7rem;
+        opacity: 0;
+        transform: translateY(20px);
+        transition: all 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .zs-step.visible {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    .zs-step p { margin-bottom: 0.3rem; }
+
+    .zs-step .step-label {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-bottom: 0.2rem;
+    }
+
+    .zs-step .MathJax { font-size: 1.05em !important; }
+
+    .zero-shot-equation {
+        background: rgba(15, 23, 42, 0.8);
+        border: 2px solid #a78bfa;
+        border-radius: 12px;
+        padding: 1rem;
+        margin-top: 0.8rem;
+        text-align: center;
+        box-shadow: 0 8px 25px rgba(167, 139, 250, 0.1);
+        opacity: 0;
+        transform: scale(0.9);
+        transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .zero-shot-equation.visible {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    .zero-shot-equation .MathJax { font-size: 1.15em !important; }
+
+    .slide5-container #clipVisCanvas5 {
+        width: 500px !important;
+        height: 500px !important;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.7);
+        background: #0f172a;
+        border-radius: 12px;
+        border: 1px solid #1e293b;
+    }
+</style>
+
+<div class="slide5-container">
+    <canvas id="clipBgCanvas5"></canvas>
+
+    <div class="slide-layout">
+        <div class="text-column">
+            <h1>Zero-Shot<br>Classification</h1>
+
+            <p>The true power of CLIP: classify images into <span class="highlight">any set of categories</span> without any task-specific training data.</p>
+
+            <div class="zs-step" id="zsStep1">
+                <p class="step-label">1. Create Text Prompts</p>
+                <p style="font-size: 0.95rem;">For each candidate class $c$, construct a text prompt:</p>
+                <p style="font-size: 0.95rem; color: #a78bfa;">"A photo of a {class name}"</p>
+                <p style="font-size: 0.9rem;">Encode each prompt: $\mathbf{T}_c = \text{TextEncoder}(\text{prompt}_c)$</p>
+            </div>
+
+            <div class="zs-step" id="zsStep2">
+                <p class="step-label">2. Encode the Image</p>
+                <p style="font-size: 0.95rem;">Pass the query image through the image encoder:</p>
+                <p>$$\mathbf{I}_x = \text{ImageEncoder}(x)$$</p>
+            </div>
+
+            <div class="zs-step" id="zsStep3">
+                <p class="step-label">3. Compare via Cosine Similarity</p>
+                <p style="font-size: 0.95rem;">Compute similarity between the image and every class prompt, then apply softmax:</p>
+            </div>
+
+            <div class="zero-shot-equation" id="zsEquation">
+                <p style="font-size: 0.85rem; color: #a78bfa; font-weight: 800; letter-spacing: 1px; margin-bottom: 0.3rem;">ZERO-SHOT PREDICTION</p>
+                <p>$$p(y{=}c \mid x) = \frac{\exp\!\left(\mathbf{I}_x^{\top}\mathbf{T}_c\, /\, \tau\right)}{\displaystyle\sum_{c'}\exp\!\left(\mathbf{I}_x^{\top}\mathbf{T}_{c'}\, /\, \tau\right)}$$</p>
+                <p style="font-size: 0.9rem; color: #cbd5e1; margin-bottom: 0;">Predict: $\hat{y} = \arg\max_c \; p(y{=}c \mid x)$</p>
+            </div>
+        </div>
+
+        <div class="visual-column">
+            <canvas id="clipVisCanvas5" width="500" height="500"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    // --- Background ---
+    const bgCanvas = document.getElementById('clipBgCanvas5');
+    const bgCtx = bgCanvas.getContext('2d');
+    let bw, bh;
+    let particles = [];
+    const particleCount = 60;
+
+    function resizeBgCanvas() {
+        const container = bgCanvas.parentElement;
+        bw = bgCanvas.width = container.offsetWidth;
+        bh = bgCanvas.height = container.offsetHeight;
+    }
+
+    class FloatingParticle {
+        constructor() {
+            this.x = Math.random() * bw;
+            this.y = Math.random() * bh;
+            this.vx = (Math.random() - 0.5) * 1.5;
+            this.vy = (Math.random() - 0.5) * 1.5;
+            this.radius = 1 + Math.random() * 2;
+            this.color = Math.random() > 0.5 ? '#06b6d4' : '#f59e0b';
+            this.opacity = 0.1 + Math.random() * 0.4;
+        }
+        update() {
+            this.x += this.vx; this.y += this.vy;
+            if (this.x < 0 || this.x > bw) this.vx *= -1;
+            if (this.y < 0 || this.y > bh) this.vy *= -1;
+            bgCtx.beginPath(); bgCtx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            bgCtx.fillStyle = `rgba(${parseInt(this.color.slice(1,3), 16)}, ${parseInt(this.color.slice(3,5), 16)}, ${parseInt(this.color.slice(5,7), 16)}, ${this.opacity})`;
+            bgCtx.fill();
+        }
+    }
+
+    function initBg() {
+        resizeBgCanvas();
+        particles = [];
+        for (let i = 0; i < particleCount; i++) particles.push(new FloatingParticle());
+    }
+    initBg();
+    window.addEventListener('resize', initBg);
+
+    // --- Staggered reveal ---
+    const revealEls = [
+        document.getElementById('zsStep1'),
+        document.getElementById('zsStep2'),
+        document.getElementById('zsStep3'),
+        document.getElementById('zsEquation')
+    ];
+    revealEls.forEach((el, i) => {
+        setTimeout(() => { if (el) el.classList.add('visible'); }, 400 + i * 600);
+    });
+
+    // --- Main Visual: Zero-Shot Classification Demo ---
+    const canvas = document.getElementById('clipVisCanvas5');
+    const ctx = canvas.getContext('2d');
+    const cw = canvas.width, ch = canvas.height;
+    let time = 0;
+
+    const classes = [
+        { emoji: '🐕', label: 'dog', sim: 0.92, color: '#10b981' },
+        { emoji: '🐈', label: 'cat', sim: 0.35, color: '#f43f5e' },
+        { emoji: '🚗', label: 'car', sim: 0.08, color: '#f43f5e' },
+        { emoji: '🌻', label: 'flower', sim: 0.12, color: '#f43f5e' },
+        { emoji: '🏠', label: 'house', sim: 0.15, color: '#f43f5e' }
+    ];
+
+    // Cycling through different query images
+    const queries = [
+        { emoji: '🐕', correct: 0, sims: [0.92, 0.35, 0.08, 0.12, 0.15] },
+        { emoji: '🐈', correct: 1, sims: [0.28, 0.89, 0.05, 0.11, 0.09] },
+        { emoji: '🚗', correct: 2, sims: [0.04, 0.06, 0.94, 0.07, 0.18] },
+        { emoji: '🌻', correct: 3, sims: [0.10, 0.08, 0.05, 0.91, 0.13] }
+    ];
+
+    let queryIdx = 0;
+    let queryTimer = 0;
+
+    function drawRoundedRect(x, y, rw, rh, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + rw - r, y);
+        ctx.quadraticCurveTo(x + rw, y, x + rw, y + r);
+        ctx.lineTo(x + rw, y + rh - r);
+        ctx.quadraticCurveTo(x + rw, y + rh, x + rw - r, y + rh);
+        ctx.lineTo(x + r, y + rh);
+        ctx.quadraticCurveTo(x, y + rh, x, y + rh - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+    }
+
+    function drawArrow(fromX, fromY, toX, toY, color, lw) {
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = lw;
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(toX, toY);
+        ctx.stroke();
+        const headlen = 8;
+        const angle = Math.atan2(toY - fromY, toX - fromX);
+        ctx.beginPath();
+        ctx.moveTo(toX, toY);
+        ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
+        ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function animate() {
+        bgCtx.clearRect(0, 0, bw, bh);
+        ctx.clearRect(0, 0, cw, ch);
+        particles.forEach(p => p.update());
+
+        time += 0.012;
+        queryTimer += 0.012;
+        if (queryTimer > 4) {
+            queryTimer = 0;
+            queryIdx = (queryIdx + 1) % queries.length;
+        }
+
+        const q = queries[queryIdx];
+
+        // Title
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = "bold 15px 'Montserrat'";
+        ctx.textAlign = 'center';
+        ctx.fillText('Zero-Shot Classification', cw / 2, 28);
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = "13px 'Inter'";
+        ctx.fillText('No training required — just prompts!', cw / 2, 48);
+
+        // Query image (left center)
+        const imgX = 80;
+        const imgY = cw / 2 - 20;
+
+        ctx.fillStyle = 'rgba(6, 182, 212, 0.1)';
+        drawRoundedRect(imgX - 40, imgY - 40, 80, 80, 12);
+        ctx.fill();
+        ctx.strokeStyle = '#06b6d4';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        ctx.font = '36px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(q.emoji, imgX, imgY + 14);
+
+        ctx.font = "bold 10px 'Montserrat'";
+        ctx.fillStyle = '#06b6d4';
+        ctx.fillText('QUERY IMAGE', imgX, imgY - 48);
+
+        // Image Encoder box
+        ctx.fillStyle = 'rgba(6, 182, 212, 0.08)';
+        drawRoundedRect(imgX - 30, imgY + 50, 60, 30, 6);
+        ctx.fill();
+        ctx.strokeStyle = '#06b6d4'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = '#06b6d4';
+        ctx.font = "bold 8px 'Montserrat'";
+        ctx.fillText('Iₓ', imgX, imgY + 69);
+
+        drawArrow(imgX, imgY + 42, imgX, imgY + 50, '#06b6d4', 1.5);
+
+        // Class prompts (right side)
+        const classX = cw - 130;
+        const classStartY = 90;
+        const classGap = 78;
+
+        ctx.font = "bold 10px 'Montserrat'";
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillText('TEXT PROMPTS', classX, classStartY - 15);
+
+        // Compute softmax probabilities
+        const tau = 0.07;
+        const expVals = q.sims.map(s => Math.exp(s / tau));
+        const sumExp = expVals.reduce((a, b) => a + b, 0);
+        const probs = expVals.map(e => e / sumExp);
+
+        for (let i = 0; i < classes.length; i++) {
+            const cy = classStartY + i * classGap;
+            const isCorrect = i === q.correct;
+            const prob = probs[i];
+
+            // Class card
+            const cardColor = isCorrect ? 'rgba(16, 185, 129, 0.12)' : 'rgba(30, 41, 59, 0.5)';
+            ctx.fillStyle = cardColor;
+            drawRoundedRect(classX - 65, cy - 15, 130, 50, 8);
+            ctx.fill();
+            ctx.strokeStyle = isCorrect ? '#10b981' : '#334155';
+            ctx.lineWidth = isCorrect ? 2 : 1;
+            ctx.stroke();
+
+            // Emoji and label
+            ctx.font = '18px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(classes[i].emoji, classX - 35, cy + 12);
+
+            ctx.font = "11px 'Inter'";
+            ctx.fillStyle = '#e2e8f0';
+            ctx.textAlign = 'left';
+            ctx.fillText('"a photo of', classX - 15, cy + 4);
+            ctx.fillStyle = isCorrect ? '#10b981' : '#f59e0b';
+            ctx.font = "bold 11px 'Inter'";
+            ctx.fillText(`a ${classes[i].label}"`, classX - 15, cy + 18);
+
+            // Probability bar
+            const barW = 120;
+            const barH = 6;
+            const barX = classX - 60;
+            const barY = cy + 27;
+
+            ctx.fillStyle = 'rgba(30, 41, 59, 0.5)';
+            drawRoundedRect(barX, barY, barW, barH, 3);
+            ctx.fill();
+
+            ctx.fillStyle = isCorrect ? '#10b981' : 'rgba(244, 63, 94, 0.4)';
+            drawRoundedRect(barX, barY, barW * prob, barH, 3);
+            ctx.fill();
+
+            ctx.font = "bold 9px 'Montserrat'";
+            ctx.textAlign = 'right';
+            ctx.fillStyle = isCorrect ? '#10b981' : '#64748b';
+            ctx.fillText((prob * 100).toFixed(1) + '%', classX + 68, barY + 6);
+
+            // Connection arrow from image to class
+            const arrowAlpha = isCorrect ?
+                (0.4 + 0.3 * Math.sin(time * 3 + i)) :
+                0.06;
+            const arrowColor = isCorrect ?
+                `rgba(16, 185, 129, ${arrowAlpha})` :
+                `rgba(148, 163, 184, ${arrowAlpha})`;
+
+            drawArrow(imgX + 42, imgY + 65, classX - 68, cy + 10, arrowColor, isCorrect ? 2 : 0.8);
+
+            // Similarity score on the arrow
+            if (isCorrect) {
+                const midAX = (imgX + 42 + classX - 68) / 2;
+                const midAY = (imgY + 65 + cy + 10) / 2;
+                ctx.font = "bold 10px 'Montserrat'";
+                ctx.fillStyle = '#10b981';
+                ctx.textAlign = 'center';
+                ctx.fillText(`sim=${q.sims[i].toFixed(2)}`, midAX, midAY - 6);
+            }
+
+            // Check mark for correct
+            if (isCorrect) {
+                const pulse = 0.7 + 0.3 * Math.sin(time * 4);
+                ctx.fillStyle = `rgba(16, 185, 129, ${pulse})`;
+                ctx.font = "bold 16px sans-serif";
+                ctx.textAlign = 'center';
+                ctx.fillText('✓', classX + 78, cy + 12);
+            }
+        }
+
+        // argmax label
+        ctx.fillStyle = '#a78bfa';
+        ctx.font = "bold 12px 'Montserrat'";
+        ctx.textAlign = 'center';
+        ctx.fillText(`Prediction: "${classes[q.correct].label}"`, cw / 2, ch - 20);
+
+        ctx.textAlign = 'left';
+
+        requestAnimationFrame(animate);
+    }
+
+    animate();
+})();
+</script>

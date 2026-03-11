@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLIP: Contrastive Language-Image Pre-training</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
+    <script>
+        window.MathJax = {
+            tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a; --text-main: #f8fafc; --accent-cyan: #06b6d4; --accent-amber: #f59e0b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-main);
+            overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; width: 100vw;
+        }
+        #slider { width: 100%; height: 100%; position: relative; }
+        .slide {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; justify-content: center; align-items: center;
+            opacity: 0; transition: opacity 0.4s ease-in-out; padding: 4rem; visibility: hidden;
+        }
+        .slide.active { opacity: 1; visibility: visible; }
+        .slide-layout { display: flex; width: 100%; max-width: 1400px; height: 100%; align-items: center; justify-content: space-between; gap: 3rem; }
+        .text-column { flex: 1; text-align: left; z-index: 10; }
+        .visual-column { flex: 1; display: flex; justify-content: center; align-items: center; }
+        h1, h2 { font-family: 'Montserrat', sans-serif; color: var(--accent-cyan); margin-bottom: 1rem; font-weight: 800; letter-spacing: -1px; }
+        .highlight { color: var(--accent-amber); font-weight: 600; }
+        #progress-container { position: fixed; bottom: 0; left: 0; width: 100%; height: 6px; background-color: #334155; z-index: 100; }
+        #progress-bar { height: 100%; width: 0%; background-color: var(--accent-amber); transition: width 0.3s ease; }
+        .present-btn {
+            position: fixed; top: 20px; right: 20px; padding: 10px 20px; background-color: var(--accent-cyan);
+            color: var(--bg-color); border: none; border-radius: 6px; font-family: 'Montserrat', sans-serif;
+            font-weight: 700; cursor: pointer; z-index: 1000; transition: 0.2s;
+        }
+        .present-btn:hover { background-color: var(--accent-amber); transform: scale(1.05); }
+        :fullscreen .present-btn { display: none; }
+    </style>
+</head>
+<body>
+    <button class="present-btn" onclick="toggleFullScreen()">PRESENT</button>
+    <main id="slider"></main>
+    <div id="progress-container"><div id="progress-bar"></div></div>
+    <script>
+        const slideFiles = ['slides/slide1.html', 'slides/slide2.html', 'slides/slide3.html', 'slides/slide4.html', 'slides/slide5.html', 'slides/slide6.html'];
+        let currentSlide = 0;
+        const slider = document.getElementById('slider');
+        const progressBar = document.getElementById('progress-bar');
+        async function loadSlides() {
+            for (let i = 0; i < slideFiles.length; i++) {
+                try {
+                    const response = await fetch(slideFiles[i]);
+                    const content = await response.text();
+                    const slideDiv = document.createElement('div');
+                    slideDiv.className = 'slide' + (i === 0 ? ' active' : '');
+                    slideDiv.innerHTML = content;
+                    slider.appendChild(slideDiv);
+                    const scripts = slideDiv.getElementsByTagName('script');
+                    for (let script of scripts) { eval(script.innerHTML); }
+                } catch (e) { console.error(e); }
+            }
+            if (window.MathJax) MathJax.typesetPromise();
+            updateProgressBar();
+        }
+        function updateProgressBar() {
+            const slides = document.querySelectorAll('.slide');
+            if (slides.length > 0) progressBar.style.width = ((currentSlide + 1) / slides.length) * 100 + '%';
+        }
+        function updateSlide(direction) {
+            const slides = document.querySelectorAll('.slide');
+            if (slides.length === 0) return;
+            slides[currentSlide].classList.remove('active');
+            if (direction === 'next' && currentSlide < slides.length - 1) currentSlide++;
+            else if (direction === 'prev' && currentSlide > 0) currentSlide--;
+            slides[currentSlide].classList.add('active');
+            updateProgressBar();
+        }
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+            else document.exitFullscreen();
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') updateSlide('next');
+            if (e.key === 'ArrowLeft') updateSlide('prev');
+        });
+        loadSlides();
+    </script>
+</body>
+</html>
